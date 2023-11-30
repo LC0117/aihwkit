@@ -19,6 +19,7 @@ Mnist dataset on a LeNet5 inspired network.
 import os
 from datetime import datetime
 
+import torch
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -47,6 +48,7 @@ USE_CUDA = 0
 if cuda.is_compiled():
     USE_CUDA = 1
 DEVICE = device("cuda" if USE_CUDA else "cpu")
+USE_ANALOG = True
 
 # Path to store datasets
 PATH_DATASET = os.path.join("data", "DATASET")
@@ -105,6 +107,25 @@ def create_analog_network(rpu_config):
         nn.Tanh(),
         AnalogLinear(in_features=channel[3], out_features=N_CLASSES, rpu_config=rpu_config),
         nn.LogSoftmax(dim=1),
+    )
+
+    return model
+
+
+def create_network():
+    channel = [16, 32, 512, 128]
+    model = nn.Sequential(
+        nn.Conv2d(in_channels=1, out_channels=channel[0], kernel_size=5, stride=1),
+        nn.Tanh(),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=5, stride=1),
+        nn.Tanh(),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Flatten(),
+        nn.Linear(in_features=channel[2], out_features=channel[3]),
+        nn.Tanh(),
+        nn.Linear(in_features=channel[3], out_features=N_CLASSES),
+        nn.LogSoftmax(dim=1)
     )
 
     return model
@@ -407,20 +428,31 @@ my_rpu_config.pre_post.input_range.output_min_percentage = 0.95
 my_rpu_config.modifier.type = WeightModifierType.ADD_NORMAL
 my_rpu_config.modifier.std_dev = 0.1
 
-# Prepare the model.
-analog_model = create_analog_network(my_rpu_config)
-if USE_CUDA:
-    analog_model = analog_model.cuda()
-print(analog_model)
 
-opt = create_sgd_optimizer(analog_model, LEARNING_RATE)
-crit = nn.CrossEntropyLoss()
+if USE_ANALOG:
+    # Prepare the model.
+    analog_model = create_analog_network(my_rpu_config)
+    if USE_CUDA:
+        analog_model = analog_model.cuda()
+    print(analog_model)
 
-# Train the model
-results = training_phase(analog_model, crit, opt, training_data, valid_data)
+    opt = create_sgd_optimizer(analog_model, LEARNING_RATE)
+    crit = nn.CrossEntropyLoss()
 
+    # Train the model
+    results = training_phase(analog_model, crit, opt, training_data, valid_data)
 
-# Test model inference over time
-t_inference_lst = [0.0, 1.0, 20.0, 1000.0, 1e5, 1e7]
-inference_error, _ = inference_phase(t_inference_lst, analog_model, crit, valid_data)
-plot_results(*results, t_inference_lst, inference_error)
+    # Test model inference over time
+    t_inference_lst = [0.0, 1.0, 20.0, 1000.0, 1e5, 1e7]
+    inference_error, _ = inference_phase(t_inference_lst, analog_model, crit, valid_data)
+    plot_results(*results, t_inference_lst, inference_error)
+else:
+    model = create_network()
+    if USE_CUDA:
+        model = model.cuda()
+    print(model)
+
+    opt = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
+    crit = nn.CrossEntropyLoss()
+
+    results = training_phase(model, crit, opt, training_data, valid_data)

@@ -40,6 +40,7 @@ USE_CUDA = 0
 if cuda.is_compiled():
     USE_CUDA = 1
 DEVICE = torch.device("cuda" if USE_CUDA else "cpu")
+USE_ANALOG = True
 
 # Path where the datasets will be stored.
 PATH_DATASET = os.path.join("data", "DATASET")
@@ -109,6 +110,23 @@ def create_analog_network(input_size, hidden_sizes, output_size):
     return model
 
 
+def create_network(input_size, hidden_sizes, output_size):
+    model = nn.Sequential(
+        nn.Linear(input_size, hidden_sizes[0], True),
+        nn.Sigmoid(),
+        nn.Linear(hidden_sizes[0], hidden_sizes[1], True),
+        nn.Sigmoid(),
+        nn.Linear(hidden_sizes[1], output_size, True),
+        nn.LogSoftmax(dim=1)
+    )
+
+    if USE_CUDA:
+        model.cuda()
+
+    print(model)
+    return model
+
+
 def create_sgd_optimizer(model):
     """Create the analog-aware optimizer.
 
@@ -131,7 +149,10 @@ def train(model, train_set):
         train_set (DataLoader): dataset of elements to use as input for training.
     """
     classifier = nn.NLLLoss()
-    optimizer = create_sgd_optimizer(model)
+    if USE_ANALOG:
+        optimizer = create_sgd_optimizer(model)
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
     scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     time_init = time()
@@ -199,7 +220,10 @@ def main():
     train_dataset, validation_dataset = load_images()
 
     # Prepare the model.
-    model = create_analog_network(INPUT_SIZE, HIDDEN_SIZES, OUTPUT_SIZE)
+    if USE_ANALOG:
+        model = create_analog_network(INPUT_SIZE, HIDDEN_SIZES, OUTPUT_SIZE)
+    else:
+        model = create_network(INPUT_SIZE, HIDDEN_SIZES, OUTPUT_SIZE)
 
     # Train the model.
     train(model, train_dataset)
